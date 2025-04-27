@@ -25,7 +25,7 @@ class MPG_Spawner {
 
       foreach (MPG_Trigger triggerItem : m_Triggers) {
         triggerItem.DeleteTrigger();
-        GetGame().ObjectDelete(triggerItem);
+        g_Game.ObjectDelete(triggerItem);
       }
       m_Triggers.Clear();
       LogThis("ClearInstance: END");
@@ -94,10 +94,10 @@ class MPG_Spawner {
         vector pos = posStr.ToVector();
 
         if (pos[1] == 0) {
-          pos[1] = GetGame().SurfaceY(pos[0], pos[2]);
+          pos[1] = g_Game.SurfaceY(pos[0], pos[2]);
         }
 
-        trigger = MPG_Trigger.Cast(GetGame().CreateObject("MPG_Trigger", pos));
+        trigger = MPG_Trigger.Cast(g_Game.CreateObject("MPG_Trigger", pos));
 
         trigger.CreateMPGTrigger(pointConfig, pos, rot.ToVector());
 
@@ -151,6 +151,7 @@ class MPG_Spawner {
                   curPoint.TryToProcessMappingDataObjects(MPG_TriggerEventType.WIN);
                   curPoint.TryToDisable(MPG_TriggerEventType.WIN);
                   curPoint.TryToEnableTriggers(MPG_TriggerEventType.WIN);
+                  curPoint.SetIsCanReset();
 
                   break;
                 }
@@ -158,6 +159,18 @@ class MPG_Spawner {
             }
           }
         }
+      }
+    }
+  }
+
+  void SetTriggerDisableReset(int pointId) {
+    for (int i = 0; i < m_Triggers.Count(); i++) {
+      if (m_Triggers.Get(i).GetPointId() == pointId) {
+        MPG_Trigger curPoint = m_Triggers.Get(i);
+
+        curPoint.SetDisableReset();
+
+        break;
       }
     }
   }
@@ -209,7 +222,7 @@ class MPG_Spawner {
       bool isCreated;
       int pointId;
       MPG_Spawner_PointConfig pointConf = tmpArr[i];
-      isCreated = GetGame().GameScript.CallFunction(pointConf, "GetId", pointId, 0);
+      isCreated = g_Game.GameScript.CallFunction(pointConf, "GetId", pointId, 0);
 
       if (isCreated) {
         PointsConfigsData.Insert(pointId, pointConf);

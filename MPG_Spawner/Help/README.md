@@ -10,3 +10,7 @@ https://discord.gg/Dv8sHcQs57
 ## Документация
 
 https://docs.mpg-dayz.ru/spawner/
+
+## Исходный код
+
+https://github.com/MPG-DayZ/MPG_Spawner

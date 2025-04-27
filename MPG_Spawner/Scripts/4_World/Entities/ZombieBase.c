@@ -27,6 +27,8 @@ modded class ZombieBase extends DayZInfected {
                         string ammo,
                         vector modelPos,
                         float speedCoef) {
+    m_SpawnerEntity.HandleEEHitBy();
+
     if (!IsAlive() && m_SpawnerEntity) {
       m_SpawnerEntity.HandleDeath(source);
     }

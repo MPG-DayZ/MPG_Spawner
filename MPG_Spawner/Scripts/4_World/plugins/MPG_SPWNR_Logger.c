@@ -40,12 +40,12 @@ class MPG_SPWNR_Logger extends PluginBase {
   };
 
   bool isHost() {
-    if (!GetGame()) {
+    if (!g_Game) {
       return false;
     }
 
-    //    return GetGame().IsServer() && GetGame().IsMultiplayer();
-    return GetGame().IsMultiplayer();
+    //    return g_Game.IsServer() && g_Game.IsMultiplayer();
+    return g_Game.IsMultiplayer();
   }
 
   void CreateNewLogFile() {

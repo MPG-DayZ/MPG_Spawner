@@ -4,6 +4,7 @@ class MPG_SpawnerEntity {
   private int m_ClearTimer;
   private bool m_Flag;
   private EntityAI m_Owner;
+  private bool m_IsHitted;
   // clang-format on
 
   void MPG_SpawnerEntity(EntityAI owner) {
@@ -32,11 +33,19 @@ class MPG_SpawnerEntity {
   void HandleDeath(Object killer) {
     if (m_PointId) {
       if (m_Owner && m_ClearTimer) {
-        GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(GetGame().ObjectDelete, m_ClearTimer * 1000, false, m_Owner);
+        g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(g_Game.ObjectDelete, m_ClearTimer * 1000, false, m_Owner);
       }
 
       MPG_Spawner.GetInstance().RemoveSpawnedCreature(m_PointId, m_Owner.GetID(), killer);
       m_PointId = 0;
     }
+  }
+
+  void HandleEEHitBy() {
+    if (!m_IsHitted) {
+      MPG_Spawner.GetInstance().SetTriggerDisableReset(m_PointId);
+    }
+
+    m_IsHitted = true;
   }
 }

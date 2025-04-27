@@ -6,6 +6,7 @@ class CfgPatches {
     requiredAddons[] = { "DZ_Data", "DZ_Scripts" };
   };
 };
+
 class CfgMods {
   class MPG_Spawner {
     dir = "MPG_Spawner";
@@ -17,7 +18,7 @@ class CfgMods {
     credits = "Hunterz";
     author = "pafnuty";
     authorID = "76561198022444951";
-    version = "1.3";
+    version = "1.4";
     extra = 0;
     type = "mod";
     dependencies[] = { "Game", "World", "Mission" };

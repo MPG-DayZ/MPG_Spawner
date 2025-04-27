@@ -12,6 +12,11 @@ class MPG_Trigger extends Trigger {
   MPG_SPWNR_Logger Logger = MPG_SPWNR_Logger.Cast(GetPlugin(MPG_SPWNR_Logger));
   MPG_SPWNR_ModConfig MPG_SPWNR_Config = g_MPG_SPWNR_ModConfig;
 
+  // clang-format off
+  private ref array<ref MPG_SpawnQueueItem> m_SpawnQueue = new array<ref MPG_SpawnQueueItem>();
+  private bool m_IsProcessingQueue = false;
+  // clang-format on
+
   // Поля совпадают с полями конфига MPG_Spawner_PointConfig
   // clang-format off
   protected int pointId;
@@ -45,6 +50,7 @@ class MPG_Trigger extends Trigger {
   protected bool triggerCleanupOnLunchTime;
   protected bool triggerCleanupImmersive;
   protected int triggerCleanupDelay;
+  protected int triggerInactiveResetDelay;
   protected string triggerWorkingTime;
   protected bool triggerDisableOnWin;
   protected bool triggerDisableOnLeave;
@@ -54,6 +60,7 @@ class MPG_Trigger extends Trigger {
   protected int spawnMax;
   protected int spawnCountLimit;
   protected bool spawnLoopInside;
+  protected int spawnQueueDelay;
   protected ref TStringArray spawnList;
   protected int clearDeathAnimals;
   protected int clearDeathZombies;
@@ -65,6 +72,7 @@ class MPG_Trigger extends Trigger {
   protected string logPrefix;
   protected bool isTriggered;
   protected bool isEntered;
+  protected bool isCanReset;
 
   protected ref array<Object> creaturesToCleanup = {};
   protected ref array<Object> lootToCleanup = {};
@@ -126,6 +134,7 @@ class MPG_Trigger extends Trigger {
     triggerCleanupOnLunchTime = pointConfig.triggerCleanupOnLunchTime;
     triggerCleanupImmersive = pointConfig.triggerCleanupImmersive;
     triggerCleanupDelay = pointConfig.triggerCleanupDelay;
+    triggerInactiveResetDelay = pointConfig.triggerInactiveResetDelay;
     triggerWorkingTime = pointConfig.triggerWorkingTime;
     triggerDisableOnWin = pointConfig.triggerDisableOnWin;
     triggerDisableOnLeave = pointConfig.triggerDisableOnLeave;
@@ -135,6 +144,7 @@ class MPG_Trigger extends Trigger {
     spawnMax = pointConfig.spawnMax;
     spawnCountLimit = pointConfig.spawnCountLimit;
     spawnLoopInside = pointConfig.spawnLoopInside;
+    spawnQueueDelay = pointConfig.spawnQueueDelay;
     spawnList = pointConfig.spawnList;
     clearDeathAnimals = pointConfig.clearDeathAnimals;
     clearDeathZombies = pointConfig.clearDeathZombies;
@@ -147,12 +157,17 @@ class MPG_Trigger extends Trigger {
     triggerWidthYRand = GetRandFloat(pointConfig.triggerWidthY);
 
     debugPos = m_debugPos;
-    logPrefix = "PointId: " + pointId + "; ";
-
-    SetNextTriggerTime(GetRandInt(triggerFirstDelay));
 
     // Вращаем триггер только по одной оси т.к. по другим пока не готово
     SetOrientation(Vector(rotation[0], 0, 0));
+
+    ReinitTrigger();
+  }
+
+  void ReinitTrigger() {
+    logPrefix = "PointId: " + pointId + "; ";
+
+    SetNextTriggerTime(GetRandInt(triggerFirstDelay));
 
     string triggerType = "box";
 
@@ -181,6 +196,8 @@ class MPG_Trigger extends Trigger {
     DrawDebugShape();
 
     LogThis(logPrefix + "mappingData: " + mappingData.Count());
+
+    SetIsCanReset();
   }
 
   void SetNextTriggerTime(float m_time = 0) { nextTriggerTime = GetGameTime() + m_time }
@@ -193,19 +210,25 @@ class MPG_Trigger extends Trigger {
     isDisabled = false;
   }
 
+  void SetIsCanReset() { isCanReset = triggerInactiveResetDelay > 0; }
+  void SetDisableReset() { isCanReset = false; }
+
   // Основной функционал класса
 
   // Что будем делать при удалении триггера
   void DeleteTrigger() {
     LogThis(logPrefix + "deleteTrigger: START");
 
+    if (m_SpawnQueue.Count()) {
+      LogThis(logPrefix + "deleteTrigger: m_SpawnQueue clean");
+      m_SpawnQueue.Clear();
+    }
+
     if (creaturesToCleanup.Count()) {
       LogThis(logPrefix + "deleteTrigger: creaturesToCleanup clean");
 
       foreach (Object del1 : creaturesToCleanup) {
-        if (del1) {
-          GetGame().ObjectDelete(del1);
-        }
+        TryToImmersiveDelete(del1);
       }
       creaturesToCleanup.Clear();
     }
@@ -215,7 +238,7 @@ class MPG_Trigger extends Trigger {
 
       foreach (Object del2 : lootToCleanup) {
         if (del2) {
-          GetGame().ObjectDelete(del2);
+          g_Game.ObjectDelete(del2);
         }
       }
       lootToCleanup.Clear();
@@ -226,7 +249,7 @@ class MPG_Trigger extends Trigger {
 
       foreach (Object del3 : objectsToRemoveOnEnter) {
         if (del3) {
-          GetGame().ObjectDelete(del3);
+          g_Game.ObjectDelete(del3);
         }
       }
       objectsToRemoveOnEnter.Clear();
@@ -238,7 +261,7 @@ class MPG_Trigger extends Trigger {
 
       foreach (Object del4 : objectsToRemoveOnFirstSpawn) {
         if (del4) {
-          GetGame().ObjectDelete(del4);
+          g_Game.ObjectDelete(del4);
         }
       }
       objectsToRemoveOnFirstSpawn.Clear();
@@ -250,7 +273,7 @@ class MPG_Trigger extends Trigger {
 
       foreach (Object del5 : objectsToRemoveOnWin) {
         if (del5) {
-          GetGame().ObjectDelete(del5);
+          g_Game.ObjectDelete(del5);
         }
       }
       objectsToRemoveOnWin.Clear();
@@ -262,11 +285,14 @@ class MPG_Trigger extends Trigger {
 
       foreach (Object del6 : debugObjects) {
         if (del6) {
-          GetGame().ObjectDelete(del6);
+          g_Game.ObjectDelete(del6);
         }
       }
       debugObjects.Clear();
     }
+
+    // Не забываем очистить заспавненные списки.
+    CleanSpawnedInstances();
 
     LogThis(logPrefix + "deleteTrigger: END");
   }
@@ -297,7 +323,7 @@ class MPG_Trigger extends Trigger {
   /**
    * Return seconds from server start
    */
-  float GetGameTime() { return GetGame().GetTickTime(); };
+  float GetGameTime() { return g_Game.GetTickTime(); };
 
   bool IsNoDependencies() {
     if (triggerDependencies.Count() > 0) {
@@ -371,7 +397,9 @@ class MPG_Trigger extends Trigger {
     // Добавил isDisabled по многочисленным просьбам
     // т.к. нотификация входа часто используется для игровой логики.
     if (notificationTextEnter != "" && !isDisabled) {
-      NotificationSystem.SendNotificationToPlayerExtended(Man.Cast(insider.GetObject()), notificationTime, notificationTitle, notificationTextEnter, notificationIcon);
+      if (IsRealAlivePlayer(insider.GetObject())) {
+        NotificationSystem.SendNotificationToPlayerExtended(PlayerBase.Cast(insider.GetObject()), notificationTime, notificationTitle, notificationTextEnter, notificationIcon);
+      }
     }
 
     TryToProcessMappingDataObjects(MPG_TriggerEventType.ENTER);
@@ -397,7 +425,7 @@ class MPG_Trigger extends Trigger {
 
         if (triggerCleanupDelay > 0 && triggerCleanupOnLeave) {
           // Пробуем зачистить живность при выходе из триггера
-          GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(TryToCleanup, triggerCleanupDelay * 1000, false);
+          g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(TryToCleanup, triggerCleanupDelay * 1000, false);
         }
 
         if (player.GetIdentity()) {
@@ -408,6 +436,11 @@ class MPG_Trigger extends Trigger {
         TryToEnableTriggers(MPG_TriggerEventType.LEAVE);
         // А уже после этого пробуем выключить сам текущий триггер
         TryToDisable(MPG_TriggerEventType.LEAVE);
+
+        // Пробуем сбросить триггер
+        if (triggerInactiveResetDelay > 0) {
+          g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(TryToReset, triggerInactiveResetDelay * 1000, false);
+        }
       }
     }
   }
@@ -444,7 +477,7 @@ class MPG_Trigger extends Trigger {
         if (triggerCleanupDelay > 0) {
           if (!IsWorkingTime()) {
             // Пробуем зачистить живность если время работы триггера не наступило
-            GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(TryToCleanup, triggerCleanupDelay * 1000, false);
+            g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(TryToCleanup, triggerCleanupDelay * 1000, false);
           }
         }
       }
@@ -488,205 +521,219 @@ class MPG_Trigger extends Trigger {
 
     isTriggered = true;
 
-    vector spawnpos;
-    float spawnchance, rndflt;
-    int rndnum;
-    int j = 0;
-    int createdCount = 0;
-    int tryingCount = 0;
-    bool shouldRotate;
-    bool shouldSpawn = true;
-    string posrot, pos, ori, classNameToSpawn;
-    TStringArray loc, spawnItemArr;
+    // Очищаем существующую очередь
+    m_SpawnQueue.Clear();
+    m_IsProcessingQueue = false;
 
-    int randSpawnLimit = Math.RandomIntInclusive(spawnMin, spawnMax);
-
-    int countToCreate = randSpawnLimit;
-
+    int countToCreate = Math.RandomIntInclusive(spawnMin, spawnMax);
     int totalSpawnedCount = GetSpawnedCount();
+    int queuedCount = 0;
+    int tryingCount = 0;
 
     LogThis(logPrefix + "spawnMin: " + spawnMin + "; spawnMax: " + spawnMax);
     LogThis(logPrefix + "randSpawnLimit: " + countToCreate + "; GetSpawnedCount: " + totalSpawnedCount);
-    LogThis(logPrefix + "countToCreate: " + countToCreate);
 
+    // Проверка лимита спавна
     if (spawnCountLimit > 0 && (totalSpawnedCount + countToCreate) >= spawnCountLimit) {
       countToCreate = spawnCountLimit - totalSpawnedCount;
       LogThis(logPrefix + "countToCreate: " + countToCreate + "; override by: spawnCountLimit ends;");
     }
 
-    if (countToCreate < 0) {
-      countToCreate = 0;
-      LogThis(logPrefix + "countToCreate: " + countToCreate + "; override by: countToCreate < 0;");
+    if (countToCreate <= 0) {
+      LogThis(logPrefix + "countToCreate: " + countToCreate + "; override by: countToCreate <= 0;");
+
+      // Если нечего спавнить, то и дальше работать нет смысла, выходим
+      return;
     }
 
-    if (countToCreate) {
-      TryToProcessMappingDataObjects(MPG_TriggerEventType.FIRST_SPAWN);
-      TryToEnableTriggers(MPG_TriggerEventType.FIRST_SPAWN);
+    TryToProcessMappingDataObjects(MPG_TriggerEventType.FIRST_SPAWN);
+    TryToEnableTriggers(MPG_TriggerEventType.FIRST_SPAWN);
 
-      vector pPosition;
+    vector pPosition;
 
-      bool shouldCalcDistance = isEnterEvent && triggerSafeDistance > 0 && spawnRadius > 0 && spawnRadius + 1 > triggerSafeDistance;
+    bool shouldCalcDistance = isEnterEvent && triggerSafeDistance > 0 && spawnRadius > 0 && spawnRadius + 1 > triggerSafeDistance;
 
-      if (shouldCalcDistance) {
-        PlayerBase player = PlayerBase.Cast(insider.GetObject());
-        if (player) {
-          pPosition = player.GetPosition();
-        }
-      }
-
-      TStringArray positions = new TStringArray();
-
-      if (countToCreate < spawnPositions.Count()) {
-        positions.Copy(spawnPositions);
-
-        float spawnDistance;
-
-        LogThis(logPrefix + "countToCreate < spawnPositions");
-
-        while (true) {
-          rndnum = Math.RandomIntInclusive(0, positions.Count() - 1);
-
-          shouldRotate = false;
-          pos = positions.Get(rndnum);
-
-          ori = "0 0 0";
-          if (positions.Get(rndnum).Contains("|")) {
-            posrot = positions.Get(rndnum);
-            loc = new TStringArray;
-            posrot.Split("|", loc);
-            pos = loc[0];
-            ori = loc[1];
-            shouldRotate = true;
-          }
-
-          // Заменим запятые на пробелы и двойные пробелы на одинарные,
-          // что бы избегать ошибок при спавне и неправильном написании координат
-          // TODO Реализовать конвертацию в нужный формат при загрузке конфигов с последующим сохранением.
-          pos.Replace(",", " ");
-          pos.Replace("  ", " ");
-          ori.Replace(",", " ");
-          ori.Replace("  ", " ");
-
-          spawnpos = pos.ToVector();
-
-          if (spawnRadius > 0) {
-            spawnpos = SetRandomPos(spawnpos, spawnRadius);
-          }
-
-          classNameToSpawn = spawnList.GetRandomElement();
-          classNameToSpawn.Replace(" ", "");
-          spawnchance = 1.0;
-          spawnItemArr = new TStringArray;
-          if (classNameToSpawn.Contains("|")) {
-            classNameToSpawn.Split("|", spawnItemArr);
-            classNameToSpawn = spawnItemArr[0];
-            spawnchance = spawnItemArr[1].ToFloat();
-          } else {
-            spawnItemArr.Insert(classNameToSpawn);
-          }
-
-          rndflt = Math.RandomFloatInclusive(0, 1.0);
-          shouldSpawn = true;
-
-          if (shouldCalcDistance) {
-            spawnDistance = vector.Distance(pPosition, spawnpos);
-            if (triggerSafeDistance > spawnDistance) {
-              shouldSpawn = false;
-            }
-          }
-
-          if (spawnchance >= rndflt && shouldSpawn) {
-            auto object1 = MPG_Spawner_CreateObject(spawnItemArr, spawnpos);
-            if (shouldRotate) {
-              object1.SetOrientation(ori.ToVector());
-            }
-            positions.RemoveOrdered(rndnum);
-            createdCount++;
-          }
-
-          tryingCount++;
-
-          if (countToCreate == createdCount) {
-            break;
-          }
-        }
-
-      } else {
-        LogThis(logPrefix + "countToCreate > spawnPositions");
-
-        while (true) {
-          shouldRotate = false;
-          pos = spawnPositions.Get(j);
-
-          ori = "0 0 0";
-          if (spawnPositions.Get(j).Contains("|")) {
-            posrot = spawnPositions.Get(j);
-            loc = new TStringArray;
-            posrot.Split("|", loc);
-            pos = loc[0];
-            ori = loc[1];
-            shouldRotate = true;
-          }
-
-          // Заменим запятые на пробелы и двойные пробелы на одинарные,
-          // что бы избегать ошибок при спавне и неправильном написании координат
-          // TODO Реализовать конвертацию в нужный формат при загрузке конфигов с последующим сохранением.
-          pos.Replace(",", " ");
-          pos.Replace("  ", " ");
-          ori.Replace(",", " ");
-          ori.Replace("  ", " ");
-
-          spawnpos = pos.ToVector();
-          if (spawnRadius > 0) {
-            spawnpos = SetRandomPos(spawnpos, spawnRadius);
-          }
-
-          classNameToSpawn = spawnList.GetRandomElement();
-          classNameToSpawn.Replace(" ", "");
-          spawnchance = 1.0;
-          spawnItemArr = new TStringArray;
-          if (classNameToSpawn.Contains("|")) {
-            classNameToSpawn.Split("|", spawnItemArr);
-            classNameToSpawn = spawnItemArr[0];
-            spawnchance = spawnItemArr[1].ToFloat();
-          } else {
-            spawnItemArr.Insert(classNameToSpawn);
-          }
-
-          rndflt = Math.RandomFloatInclusive(0, 1.0);
-          shouldSpawn = true;
-
-          if (shouldCalcDistance) {
-            spawnDistance = vector.Distance(pPosition, spawnpos);
-            if (triggerSafeDistance > spawnDistance) {
-              shouldSpawn = false;
-            }
-          }
-
-          if (spawnchance >= rndflt && shouldSpawn) {
-            auto object2 = MPG_Spawner_CreateObject(spawnItemArr, spawnpos);
-            if (shouldRotate) {
-              object2.SetOrientation(ori.ToVector());
-            }
-            j++;
-            createdCount++;
-            if (j == spawnPositions.Count()) {
-              j = 0;
-            }
-          }
-
-          tryingCount++;
-
-          if (countToCreate == createdCount) {
-            break;
-          }
-        }
+    if (shouldCalcDistance) {
+      PlayerBase player = PlayerBase.Cast(insider.GetObject());
+      if (player) {
+        pPosition = player.GetPosition();
       }
     }
 
-    if (notificationTextSpawn != "" && createdCount > 0) {
-      string textToDisplay = GetDeclensionText(countToCreate, notificationTextSpawn);
+    // Выбор стратегии спавна в зависимости от количества позиций для спавна
+    if (countToCreate < spawnPositions.Count()) {
+      // Если количество позиций для спавна больше, чем количество точек спавна, работаем с лимитированным числом точек
+      queuedCount = PrepareSpawnQueueWithLimitedPositions(countToCreate, pPosition, shouldCalcDistance, tryingCount);
+    } else {
+      // Если количество позиций для спавна меньше, чем количество точек спавна, работаем с неограниченным числом точек
+      queuedCount = PrepareSpawnQueueWithUnlimitedPositions(countToCreate, pPosition, shouldCalcDistance, tryingCount);
+    }
 
+    // Логирование результатов для понимания сложности расчёта спавна
+    Logger.Log(logPrefix + "tryingCount: " + tryingCount);
+    Logger.Log(logPrefix + "queuedCount: " + queuedCount);
+
+    if (tryingCount > queuedCount * 2) {
+      Logger.Log(logPrefix + "WARNING: To many tryingCount");
+    }
+
+    // Начинаем обработку очереди на спавн, если там есть что обрабатывать
+    if (m_SpawnQueue.Count() > 0) {
+      ProcessSpawnQueue(queuedCount);
+    }
+  }
+
+  // clang-format off
+  private int PrepareSpawnQueueWithLimitedPositions(int countToCreate, vector pPosition, bool shouldCalcDistance, out int tryingCount) {
+    // clang-format on
+    TStringArray positions = new TStringArray();
+    positions.Copy(spawnPositions);
+    int queuedCount = 0;
+    tryingCount = 0;
+
+    LogThis(logPrefix + "countToCreate < spawnPositions");
+
+    while (queuedCount < countToCreate && positions.Count() > 0) {
+      int rndnum = Math.RandomIntInclusive(0, positions.Count() - 1);
+      MPG_SpawnQueueItem item = PrepareSpawnItem(positions.Get(rndnum), pPosition, shouldCalcDistance);
+
+      if (item) {
+        m_SpawnQueue.Insert(item);
+        positions.RemoveOrdered(rndnum);
+        queuedCount++;
+      }
+
+      tryingCount++;
+    }
+
+    return queuedCount;
+  }
+
+  // clang-format off
+  private int PrepareSpawnQueueWithUnlimitedPositions(int countToCreate, vector pPosition, bool shouldCalcDistance, out int tryingCount) {
+    // clang-format on
+    int queuedCount = 0;
+    tryingCount = 0;
+    int j = 0;
+
+    LogThis(logPrefix + "countToCreate > spawnPositions");
+
+    while (queuedCount < countToCreate) {
+      MPG_SpawnQueueItem item = PrepareSpawnItem(spawnPositions.Get(j), pPosition, shouldCalcDistance);
+
+      if (item) {
+        m_SpawnQueue.Insert(item);
+        queuedCount++;
+      }
+
+      j++;
+      if (j >= spawnPositions.Count()) {
+        j = 0;
+      }
+
+      tryingCount++;
+    }
+
+    return queuedCount;
+  }
+
+  // clang-format off
+  private MPG_SpawnQueueItem PrepareSpawnItem(string positionStr, vector pPosition, bool shouldCalcDistance) {
+    // clang-format on
+    string pos = positionStr;
+    string ori = "0 0 0";
+    bool shouldRotate = false;
+
+    // Обработка позиции и ориентации
+    if (positionStr.Contains("|")) {
+      TStringArray loc = new TStringArray;
+      positionStr.Split("|", loc);
+      pos = loc[0];
+      ori = loc[1];
+      shouldRotate = true;
+    }
+
+    // Заменим запятые на пробелы и двойные пробелы на одинарные,
+    // что бы избегать ошибок при спавне и неправильном написании координат
+    // TODO Реализовать конвертацию в нужный формат при загрузке конфигов с последующим сохранением.    pos.Replace(",", " ");
+    pos.Replace("  ", " ");
+    ori.Replace(",", " ");
+    ori.Replace("  ", " ");
+
+    vector spawnpos = pos.ToVector();
+    if (spawnRadius > 0) {
+      spawnpos = SetRandomPos(spawnpos, spawnRadius);
+    }
+
+    // Выбор случайного элемента для спавна
+    string classNameToSpawn = spawnList.GetRandomElement();
+    classNameToSpawn.Replace(" ", "");
+    float spawnchance = 1.0;
+    TStringArray spawnItemArr = new TStringArray;
+
+    if (classNameToSpawn.Contains("|")) {
+      classNameToSpawn.Split("|", spawnItemArr);
+      classNameToSpawn = spawnItemArr[0];
+      spawnchance = spawnItemArr[1].ToFloat();
+    } else {
+      spawnItemArr.Insert(classNameToSpawn);
+    }
+
+    float rndflt = Math.RandomFloatInclusive(0, 1.0);
+    bool shouldSpawn = true;
+
+    if (shouldCalcDistance) {
+      float spawnDistance = vector.Distance(pPosition, spawnpos);
+      if (triggerSafeDistance > spawnDistance) {
+        shouldSpawn = false;
+      }
+    }
+
+    if (spawnchance >= rndflt && shouldSpawn) {
+      return new MPG_SpawnQueueItem(pos, ori, spawnItemArr, spawnpos, shouldRotate);
+    }
+
+    return null;
+  }
+
+  // Обрабатываем очередь спавна
+  void ProcessSpawnQueue(int queuedCount) {
+    if (m_IsProcessingQueue || m_SpawnQueue.Count() == 0) {
+      return;
+    }
+
+    m_IsProcessingQueue = true;
+
+    // Сохраняем первый элемент из очереди
+    MPG_SpawnQueueItem item = m_SpawnQueue[0];
+    // Сразу удаляем первый элемент списка т.к. он нам больше не пригодится
+    m_SpawnQueue.RemoveOrdered(0);
+
+    Object spawnedObject = MPG_Spawner_CreateObject(item.m_SpawnItemArr, item.m_SpawnPos);
+    if (spawnedObject) {
+      if (item.m_ShouldRotate) {
+        spawnedObject.SetOrientation(item.m_Orientation.ToVector());
+      }
+
+      LogThis(logPrefix + "SpawnQueue: Spawned; Item: " + item.m_SpawnItemArr[0] + " (" + (queuedCount - m_SpawnQueue.Count()) + "/" + queuedCount + "); Pos: " + item.m_SpawnPos.ToString());
+    }
+
+    // Следующий спавн будет с задержкой
+    GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(ProcessNextQueueItem, spawnQueueDelay, false, queuedCount);
+  }
+
+  void ProcessNextQueueItem(int queuedCount) {
+    m_IsProcessingQueue = false;
+
+    // Если в очереди есть еще элементы, обрабатываем следующий
+    if (m_SpawnQueue.Count() > 0) {
+      ProcessSpawnQueue(queuedCount);
+      return;
+    }
+
+    // Если очередь пуста, показываем уведомление, если нужно
+    if (notificationTextSpawn != "" && queuedCount > 0) {
+      string textToDisplay = GetDeclensionText(queuedCount, notificationTextSpawn);
       for (int iplr = 0; iplr < GetInsiders().Count(); iplr++) {
         Man notifyPlayer = Man.Cast(GetInsiders().Get(iplr).GetObject());
         if (notifyPlayer) {
@@ -695,9 +742,7 @@ class MPG_Trigger extends Trigger {
       }
     }
 
-    // Эти логи помогают определить насколько сложно разместить живность в данном триггере
-    Logger.Log(logPrefix + "tryingCount: " + tryingCount);
-    Logger.Log(logPrefix + "createdCount: " + createdCount);
+    LogThis(logPrefix + "SpawnQueue: Completed; Spawned items: " + queuedCount);
   }
 
   /**
@@ -712,15 +757,7 @@ class MPG_Trigger extends Trigger {
         LogThis(logPrefix + "TryToCleanupCreatures: yes; count: " + creaturesToCleanup.Count());
 
         foreach (Object creatureToCleanup : creaturesToCleanup) {
-          if (creatureToCleanup) {
-            // При иммерсивной очистке сначала ставим нулевое здоровье, что бы добиться эффекта смерти животных и зомби
-            if (triggerCleanupImmersive) {
-              creatureToCleanup.SetHealth("", "", 0.0);
-              GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(GetGame().ObjectDelete, 2000, false, creatureToCleanup);
-            } else {
-              GetGame().ObjectDelete(creatureToCleanup);
-            }
-          }
+          TryToImmersiveDelete(creatureToCleanup);
         }
         creaturesToCleanup.Clear();
       } else {
@@ -757,6 +794,55 @@ class MPG_Trigger extends Trigger {
      * Иначе ломается логика спавна.
      */
     CleanSpawnedInstances();
+  }
+
+  /**
+   * Обёртка для иммерсионного  удаления объекта (животное или зомби)
+   */
+  void TryToImmersiveDelete(Object objectToCleanup) {
+    if (objectToCleanup) {
+      // При иммерсивной очистке сначала ставим нулевое здоровье, что бы добиться эффекта смерти животных и зомби
+      if (triggerCleanupImmersive) {
+        LogThis(logPrefix + "TryToImmersiveDelete: with immersive;");
+        objectToCleanup.SetHealth("", "", 0.0);
+        GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(GetGame().ObjectDelete, 2000, false, objectToCleanup);
+      } else {
+        LogThis(logPrefix + "TryToImmersiveDelete: without immersive;");
+        GetGame().ObjectDelete(objectToCleanup);
+      }
+    } else {
+      LogThis(logPrefix + "ERROR: TryToImmersiveDelete: objectToCleanup is null");
+    }
+  }
+
+  void TryToReset() {
+    if (isDisabled) {
+      LogThis(logPrefix + "Will NOT TryToReset, trigger is Disabled");
+
+      return;
+    }
+
+    if (!isCanReset) {
+      LogThis(logPrefix + "Will NOT TryToReset, trigger is cant be reset");
+
+      return;
+    }
+
+    /**
+     * - Проверяем параметр triggerInactiveResetDelay
+     * - Проверяем, что никто из заспавненных не получал урон (добавляем регистрацию урона к живке и сохранение флага в риггер)
+     * - Проверяем, что в зоне триггера никого нет
+     * - Проверяем, что прошло время
+     * - Убиваем всю живность
+     * - Очищаем триггер, как буд-то он не работал.
+     */
+
+    if (triggerInactiveResetDelay > 0 && !GetInsiders().Count() && creaturesToCleanup.Count()) {
+      LogThis(logPrefix + "TryToReset: yes; count: " + creaturesToCleanup.Count());
+
+      DeleteTrigger();
+      ReinitTrigger();
+    }
   }
 
   /**
@@ -833,7 +919,7 @@ class MPG_Trigger extends Trigger {
       flags = ECE_PLACE_ON_SURFACE | ECE_INITAI;
     }
 
-    auto newObject = GetGame().CreateObjectEx(itemArr[0], pos, flags);
+    auto newObject = g_Game.CreateObjectEx(itemArr[0], pos, flags);
 
     if (newObject) {
       LogThis(logPrefix + "Spawned: " + newObject + "; Pos: " + pos.ToString());
@@ -923,7 +1009,7 @@ class MPG_Trigger extends Trigger {
         MPG_Spawner.GetInstance().AddSpawnedInstance(GetPointId(), animal.GetID());
       }
 
-      if (triggerCleanupDelay > 0) {
+      if (triggerCleanupDelay > 0 || triggerInactiveResetDelay > 0) {
         creaturesToCleanup.Insert(animal);
       }
 
@@ -945,7 +1031,7 @@ class MPG_Trigger extends Trigger {
         MPG_Spawner.GetInstance().AddSpawnedInstance(GetPointId(), zombie.GetID());
       }
 
-      if (triggerCleanupDelay > 0) {
+      if (triggerCleanupDelay > 0 || triggerInactiveResetDelay > 0) {
         creaturesToCleanup.Insert(zombie);
       }
 
@@ -1094,10 +1180,6 @@ class MPG_Trigger extends Trigger {
     randompos[0] = position[0] + x;
     randompos[1] = position[1];
     randompos[2] = position[2] + y;
-    // check surface
-    //    if (GetGame().SurfaceY(randompos[0], randompos[2]) > position[1]) {
-    //      randompos[1] = GetGame().SurfaceY(randompos[0], randompos[2]) + 0.3;
-    //    }
 
     return randompos;
   }
@@ -1114,7 +1196,7 @@ class MPG_Trigger extends Trigger {
     }
 
     // Нам нужны только часы
-    GetGame().GetWorld().GetDate(pass, pass, pass, hour, pass);
+    g_Game.GetWorld().GetDate(pass, pass, pass, hour, pass);
     if (wtbegin > wtend) {
       if (hour >= wtbegin || hour <= wtend) {
         return true;
@@ -1157,7 +1239,6 @@ class MPG_Trigger extends Trigger {
       }
 
       float scaleRadius = triggerRadiusRand / 10;
-      Param1<float> p_scaleRadius = new Param1<float>(scaleRadius);
 
       // Проверка инициализации debugPos
       if (debugPos == vector.Zero) {
@@ -1168,23 +1249,23 @@ class MPG_Trigger extends Trigger {
       switch (GetTriggerShape()) {
       case TriggerShape.BOX:
         // Нижняя грань
-        Object debugSqBot = GetGame().CreateObjectEx("MPG_Spawner_Debug_Square_" + shapeColor, debugPos, ECE_NONE);
+        Object debugSqBot = g_Game.CreateObjectEx("MPG_Spawner_Debug_Square_" + shapeColor, debugPos, ECE_NONE);
         // Верхняя грань
-        Object debugSqTop = GetGame().CreateObjectEx("MPG_Spawner_Debug_Square_" + shapeColor, debugPos + Vector(0, triggerHeightRand, 0), ECE_NONE);
+        Object debugSqTop = g_Game.CreateObjectEx("MPG_Spawner_Debug_Square_" + shapeColor, debugPos + Vector(0, triggerHeightRand, 0), ECE_NONE);
 
         float halfHeight = triggerHeightRand / 2;
         float halfWX = triggerWidthXRand * 0.5;
         float halfWY = triggerWidthYRand * 0.5;
 
         // Боковая грань X1 - левая
-        Object debugSqX1 = GetGame().CreateObjectEx("MPG_Spawner_Debug_Square_1_" + shapeColor, debugPos, ECE_NONE);
+        Object debugSqX1 = g_Game.CreateObjectEx("MPG_Spawner_Debug_Square_1_" + shapeColor, debugPos, ECE_NONE);
         // Боковая грань X2 - правая
-        Object debugSqX2 = GetGame().CreateObjectEx("MPG_Spawner_Debug_Square_1_" + shapeColor, debugPos, ECE_NONE);
+        Object debugSqX2 = g_Game.CreateObjectEx("MPG_Spawner_Debug_Square_1_" + shapeColor, debugPos, ECE_NONE);
 
         // Боковая грань Y1 - передняя
-        Object debugSqY1 = GetGame().CreateObjectEx("MPG_Spawner_Debug_Square_1_" + shapeColor, debugPos, ECE_NONE);
+        Object debugSqY1 = g_Game.CreateObjectEx("MPG_Spawner_Debug_Square_1_" + shapeColor, debugPos, ECE_NONE);
         // Боковая грань Y2 - задняя
-        Object debugSqY2 = GetGame().CreateObjectEx("MPG_Spawner_Debug_Square_1_" + shapeColor, debugPos, ECE_NONE);
+        Object debugSqY2 = g_Game.CreateObjectEx("MPG_Spawner_Debug_Square_1_" + shapeColor, debugPos, ECE_NONE);
 
         // Проверка, что объект был создан
         if (!debugSqBot) {
@@ -1253,28 +1334,16 @@ class MPG_Trigger extends Trigger {
         debugSqY1.SetScale(scaleY);
         debugSqY2.SetScale(scaleY);
 
-        Param1<float> p_scaleHorizontal = new Param1<float>(scaleHorizontal);
-        debugSqBot.RPCSingleParam(-128965, p_scaleHorizontal, true);
-        debugSqTop.RPCSingleParam(-128965, p_scaleHorizontal, true);
-
-        Param1<float> p_scaleX = new Param1<float>(scaleX);
-        debugSqX1.RPCSingleParam(-128965, p_scaleX, true);
-        debugSqX2.RPCSingleParam(-128965, p_scaleX, true);
-
-        Param1<float> p_scaleY = new Param1<float>(scaleY);
-        debugSqY1.RPCSingleParam(-128965, p_scaleY, true);
-        debugSqY2.RPCSingleParam(-128965, p_scaleY, true);
-
         LogThis(logPrefix + "Trigger: Debug Box Created;");
 
         break;
       case TriggerShape.CYLINDER:
         // Создаём цилиндр без крыши и пола
-        Object debugCylWall = GetGame().CreateObjectEx("MPG_Spawner_Debug_Cylinder_1_" + shapeColor, debugPos, ECE_NONE);
+        Object debugCylWall = g_Game.CreateObjectEx("MPG_Spawner_Debug_Cylinder_1_" + shapeColor, debugPos, ECE_NONE);
         // Создаём пол на позиции нижней границы цилиндра
-        Object debugCircleBottom = GetGame().CreateObjectEx("MPG_Spawner_Debug_Circle_" + shapeColor, debugPos, ECE_NONE);
+        Object debugCircleBottom = g_Game.CreateObjectEx("MPG_Spawner_Debug_Circle_" + shapeColor, debugPos, ECE_NONE);
         // Создаём крышу на позиции верхней гранимцы цилиндра
-        Object debugCircleTop = GetGame().CreateObjectEx("MPG_Spawner_Debug_Circle_" + shapeColor, debugPos + Vector(0, triggerHeightRand, 0), ECE_NONE);
+        Object debugCircleTop = g_Game.CreateObjectEx("MPG_Spawner_Debug_Circle_" + shapeColor, debugPos + Vector(0, triggerHeightRand, 0), ECE_NONE);
 
         // Проверка, что все три объекта были созданы
         if (!debugCylWall || !debugCircleBottom || !debugCircleTop) {
@@ -1287,7 +1356,6 @@ class MPG_Trigger extends Trigger {
         debugObjects.Insert(debugCircleTop);
 
         debugCylWall.SetScale(scaleRadius);
-        debugCylWall.RPCSingleParam(-128965, p_scaleRadius, true);
 
         // Сделаем крышу и пол цилиндра немного больше,
         // что бы они визуально выпирали за границы цилиндра.
@@ -1295,14 +1363,10 @@ class MPG_Trigger extends Trigger {
         debugCircleBottom.SetScale(scaleRadius * 1.02);
         debugCircleTop.SetScale(scaleRadius * 1.02);
 
-        Param1<float> p_scaleRadius1 = new Param1<float>(scaleRadius * 1.02);
-        debugCircleBottom.RPCSingleParam(-128965, p_scaleRadius1, true);
-        debugCircleTop.RPCSingleParam(-128965, p_scaleRadius1, true);
-
         LogThis(logPrefix + "Trigger: Debug Cylinder Created;");
         break;
       case TriggerShape.SPHERE:
-        Object debugSphere = GetGame().CreateObjectEx("MPG_Spawner_Debug_Sphere_" + shapeColor, debugPos, ECE_NONE);
+        MPG_Spawner_DebugBase debugSphere = MPG_Spawner_DebugBase.Cast(g_Game.CreateObjectEx("MPG_Spawner_Debug_Sphere_" + shapeColor, debugPos, ECE_NONE));
         // Проверка, что объект был создан
         if (!debugSphere) {
           LogThis(logPrefix + "ERROR: Debug Sphere NOT Created");
@@ -1312,7 +1376,6 @@ class MPG_Trigger extends Trigger {
         debugObjects.Insert(debugSphere);
 
         debugSphere.SetScale(scaleRadius);
-        debugSphere.RPCSingleParam(-128965, p_scaleRadius, true);
 
         LogThis(logPrefix + "Trigger: Debug Sphere Created;");
         break;
@@ -1445,7 +1508,7 @@ class MPG_Trigger extends Trigger {
         }
 
         // TODO Возможно стоит выполнять эту функцию сразу после спавна объектов, а не с максимальной задержкой
-        GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(UpdateObjectsPathGraphLater, maxDelay, false);
+        g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(UpdateObjectsPathGraphLater, maxDelay, false);
         break;
 
       case MPG_TriggerEventType.ENTER:
@@ -1465,7 +1528,7 @@ class MPG_Trigger extends Trigger {
           }
 
           // TODO Возможно стоит выполнять эту функцию сразу после спавна объектов, а не с максимальной задержкой
-          GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(UpdateObjectsPathGraphLater, maxDelay, false);
+          g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(UpdateObjectsPathGraphLater, maxDelay, false);
         } else {
           if (isSpawnedOnEnter) {
             LogThis(logPrefix + "SpawnMappingObjects: ENTER Should not be spawn");
@@ -1478,7 +1541,7 @@ class MPG_Trigger extends Trigger {
           foreach (int index, Object delOnEnter : objectsToRemoveOnEnter) {
             if (delOnEnter) {
               LogThis(logPrefix + "MarkToDelete: " + delOnEnter + "; class: " + delOnEnter.GetType() + "; delay: " + objectsToRemoveOnEnterDelay[index] / 1000);
-              GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(GetGame().ObjectDelete, objectsToRemoveOnEnterDelay[index], false, delOnEnter);
+              g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(g_Game.ObjectDelete, objectsToRemoveOnEnterDelay[index], false, delOnEnter);
             } else {
               Logger.Log(logPrefix + "ERROR: Cannot delete object from objectsToRemoveOnEnter");
             }
@@ -1510,7 +1573,7 @@ class MPG_Trigger extends Trigger {
           }
 
           // TODO Возможно стоит выполнять эту функцию сразу после спавна объектов, а не с максимальной задержкой
-          GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(UpdateObjectsPathGraphLater, maxDelay, false);
+          g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(UpdateObjectsPathGraphLater, maxDelay, false);
         } else {
           if (isSpawnedOnFirstSpawn) {
             LogThis(logPrefix + "SpawnMappingObjects: FIRST_SPAWN Should not be spawn");
@@ -1523,7 +1586,7 @@ class MPG_Trigger extends Trigger {
           foreach (int index1, Object delOnFirstSpawn : objectsToRemoveOnFirstSpawn) {
             if (delOnFirstSpawn) {
               LogThis(logPrefix + "MarkToDelete: " + delOnFirstSpawn + "; class: " + delOnFirstSpawn.GetType() + "; delay: " + objectsToRemoveOnFirstSpawnDelay[index1] / 1000);
-              GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(GetGame().ObjectDelete, objectsToRemoveOnFirstSpawnDelay[index1], false, delOnFirstSpawn);
+              g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(g_Game.ObjectDelete, objectsToRemoveOnFirstSpawnDelay[index1], false, delOnFirstSpawn);
             } else {
               Logger.Log(logPrefix + "ERROR: Cannot delete object from objectsToRemoveOnFirstSpawn");
             }
@@ -1555,7 +1618,7 @@ class MPG_Trigger extends Trigger {
           }
 
           // TODO Возможно стоит выполнять эту функцию сразу после спавна объектов, а не с максимальной задержкой
-          GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(UpdateObjectsPathGraphLater, maxDelay, false);
+          g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(UpdateObjectsPathGraphLater, maxDelay, false);
         } else {
           if (isSpawnedOnWin) {
             LogThis(logPrefix + "SpawnMappingObjects: WIN Should not be spawn");
@@ -1568,7 +1631,7 @@ class MPG_Trigger extends Trigger {
           foreach (int index2, Object delOnWin : objectsToRemoveOnWin) {
             if (delOnWin) {
               LogThis(logPrefix + "MarkToDelete: " + delOnWin + "; class: " + delOnWin.GetType() + "; delay: " + objectsToRemoveOnWinDelay[index2] / 1000);
-              GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(GetGame().ObjectDelete, objectsToRemoveOnWinDelay[index2], false, delOnWin);
+              g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(g_Game.ObjectDelete, objectsToRemoveOnWinDelay[index2], false, delOnWin);
             } else {
               Logger.Log(logPrefix + "ERROR: Cannot delete object from objectsToRemoveOnWin");
             }
@@ -1586,13 +1649,13 @@ class MPG_Trigger extends Trigger {
   }
 
   void UpdateObjectsPathGraphLater() {
-    GetGame().GetWorld().ProcessMarkedObjectsForPathgraphUpdate();
+    g_Game.GetWorld().ProcessMarkedObjectsForPathgraphUpdate();
   }
 
   /**
    * Запускаем процесс спавна объектов с задержкой.
    * Возвращаем максимальную задержку в миллесекундах для того, что бы в конце цикла можно было запустить
-   * функцию `GetGame().GetWorld().ProcessMarkedObjectsForPathgraphUpdate();` с нужной задержкой
+   * функцию `g_Game.GetWorld().ProcessMarkedObjectsForPathgraphUpdate();` с нужной задержкой
    */
   float ProcessMappingDataObjects(MPG_Spawner_mappingData mappingDataObject) {
     float maxDelay = 0;
@@ -1609,7 +1672,7 @@ class MPG_Trigger extends Trigger {
         int removeDelay = mappingDataObject.removeDelay * 1000;
         // TODO Попробовать переделать на спавн с задержкой всех объектов сразу, а не по одному,
         //  есть подозрение, что спавнить по одному с задержкой дороже, чем спавнить все с задержкой.
-        GetGame().GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.SpawnMappingDataObject, addDelay, false, mappingObject, mappingDataObject.removeOnEnter, mappingDataObject.removeOnFirstSpawn, mappingDataObject.removeOnWin, removeDelay);
+        g_Game.GetCallQueue(CALL_CATEGORY_SYSTEM).CallLater(this.SpawnMappingDataObject, addDelay, false, mappingObject, mappingDataObject.removeOnEnter, mappingDataObject.removeOnFirstSpawn, mappingDataObject.removeOnWin, removeDelay);
       }
     }
 
@@ -1641,7 +1704,7 @@ class MPG_Trigger extends Trigger {
       flags &= ~ECE_NOLIFETIME;
     }
 
-    object = GetGame().CreateObjectEx(item.name, vector.ArrayToVec(item.pos), flags, RF_IGNORE);
+    object = g_Game.CreateObjectEx(item.name, vector.ArrayToVec(item.pos), flags, RF_IGNORE);
     if (object) {
       object.SetOrientation(vector.ArrayToVec(item.ypr));
       if (item.scale != 1) {

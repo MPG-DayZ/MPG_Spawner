@@ -3,7 +3,7 @@ modded class MissionServer extends MissionBase {
   // void MissionServer() { Использовать нельзя
   override void OnInit() {
     super.OnInit();
-    if (GetGame().IsServer() || !GetGame().IsMultiplayer()) {
+    if (g_Game.IsServer() || !g_Game.IsMultiplayer()) {
       g_MPG_SPWNR_ModConfig = NULL;
       GetMPG_SPWNR_ModConfig();
 

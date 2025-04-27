@@ -43,6 +43,7 @@ class MPG_Spawner_PointConfig {
   bool triggerCleanupOnLunchTime;
   bool triggerCleanupImmersive;
   int triggerCleanupDelay;
+  int triggerInactiveResetDelay;
   string triggerWorkingTime;
   bool triggerDisableOnWin;
   bool triggerDisableOnLeave;
@@ -52,63 +53,13 @@ class MPG_Spawner_PointConfig {
   int spawnMax;
   int spawnCountLimit;
   bool spawnLoopInside;
+  int spawnQueueDelay;
   ref TStringArray spawnList;
   int clearDeathAnimals;
   int clearDeathZombies;
   ref array<ref MPG_Spawner_mappingData> mappingData;
 
   int GetId() { return pointId; }
-
-  void convertFromV1(MPG_Spawner_PointConfigV1 pcv1) {
-    pointId = pcv1.pointId;
-    isDebugEnabled = pcv1.isDebugEnabled;
-    notificationTitle = pcv1.notificationTitle;
-    notificationTextEnter = pcv1.notificationTextEnter;
-    notificationTextExit = pcv1.notificationTextExit;
-    notificationTextSpawn = pcv1.notificationTextSpawn;
-    notificationTextWin = pcv1.notificationTextWin;
-    notificationTime = pcv1.notificationTime;
-    notificationIcon = pcv1.notificationIcon;
-    triggerDependencies = pcv1.triggerDependencies;
-    triggerDependenciesAnyOf = pcv1.triggerDependenciesAnyOf;
-    triggersToEnableOnEnter = pcv1.triggersToEnableOnEnter;
-    triggersToEnableOnFirstSpawn = pcv1.triggersToEnableOnFirstSpawn;
-    triggersToEnableOnWin = pcv1.triggersToEnableOnWin;
-    triggersToEnableOnLeave = pcv1.triggersToEnableOnLeave;
-    triggerPosition = pcv1.triggerPosition;
-    triggerDebugColor = pcv1.triggerDebugColor;
-    // в v2 это строка, поэтому конвертируем в строку
-    triggerRadius = pcv1.triggerRadius.ToString();
-    // в v2 это строка, поэтому конвертируем в строку
-    triggerHeight = pcv1.triggerHeight.ToString();
-    // в v2 это строка, поэтому конвертируем в строку
-    triggerWidthX = pcv1.triggerWidthX.ToString();
-    // в v2 это строка, поэтому конвертируем в строку
-    triggerWidthY = pcv1.triggerWidthY.ToString();
-    // в v2 это строка, поэтому конвертируем в строку
-    triggerFirstDelay = pcv1.triggerFirstDelay.ToString();
-    // в v2 это строка, поэтому конвертируем в строку
-    triggerCooldown = pcv1.triggerCooldown.ToString();
-    triggerSafeDistance = pcv1.triggerSafeDistance;
-    triggerEnterDelay = pcv1.triggerEnterDelay;
-    triggerCleanupOnLeave = pcv1.triggerCleanupOnLeave;
-    triggerCleanupOnLunchTime = pcv1.triggerCleanupOnLunchTime;
-    triggerCleanupImmersive = pcv1.triggerCleanupImmersive;
-    triggerCleanupDelay = pcv1.triggerCleanupDelay;
-    triggerWorkingTime = pcv1.triggerWorkingTime;
-    triggerDisableOnWin = pcv1.triggerDisableOnWin;
-    triggerDisableOnLeave = pcv1.triggerDisableOnLeave;
-    spawnPositions = pcv1.spawnPositions;
-    spawnRadius = pcv1.spawnRadius;
-    spawnMin = pcv1.spawnMin;
-    spawnMax = pcv1.spawnMax;
-    spawnCountLimit = pcv1.spawnCountLimit;
-    spawnLoopInside = pcv1.spawnLoopInside;
-    spawnList = pcv1.spawnList;
-    clearDeathAnimals = pcv1.clearDeathAnimals;
-    clearDeathZombies = pcv1.clearDeathZombies;
-    mappingData = pcv1.mappingData;
-  }
 
   void convertFromV2(MPG_Spawner_PointConfigV2 pcv2) {
     pointId = pcv2.pointId;
@@ -158,53 +109,6 @@ class MPG_Spawner_PointConfig {
     clearDeathZombies = pcv2.clearDeathZombies;
     mappingData = pcv2.mappingData;
   }
-}
-
-class MPG_Spawner_PointConfigV1 {
-  int pointId;
-  bool isDebugEnabled;
-  string notificationTitle;
-  string notificationTextEnter;
-  string notificationTextExit;
-  string notificationTextSpawn;
-  string notificationTextWin;
-  int notificationTime;
-  string notificationIcon;
-  ref TIntArray triggerDependencies;
-  bool triggerDependenciesAnyOf;
-  ref TIntArray triggersToEnableOnEnter;
-  ref TIntArray triggersToEnableOnFirstSpawn;
-  ref TIntArray triggersToEnableOnWin;
-  ref TIntArray triggersToEnableOnLeave;
-  string triggerPosition;
-  string triggerDebugColor;
-  float triggerRadius;
-  float triggerHeight;
-  float triggerWidthX;
-  float triggerWidthY;
-  int triggerFirstDelay;
-  float triggerCooldown;
-  float triggerSafeDistance;
-  int triggerEnterDelay;
-  bool triggerCleanupOnLeave;
-  bool triggerCleanupOnLunchTime;
-  bool triggerCleanupImmersive;
-  int triggerCleanupDelay;
-  string triggerWorkingTime;
-  bool triggerDisableOnWin;
-  bool triggerDisableOnLeave;
-  ref TStringArray spawnPositions;
-  float spawnRadius;
-  int spawnMin;
-  int spawnMax;
-  int spawnCountLimit;
-  bool spawnLoopInside;
-  ref TStringArray spawnList;
-  int clearDeathAnimals;
-  int clearDeathZombies;
-  ref array<ref MPG_Spawner_mappingData> mappingData;
-
-  int GetId() { return pointId; }
 }
 
 class MPG_Spawner_PointConfigV2 {
@@ -261,9 +165,10 @@ class MPG_SPWNR_ModConfig {
   bool isModDisabled = false;
   bool isDebugEnabled = false;
   ref TStringArray pointsConfigs = new TStringArray;
+  ref TStringArray admins = new TStringArray;
 
   void MPG_SPWNR_ModConfig() {
-    if (GetGame().IsServer() && GetGame().IsMultiplayer()) {
+    if (g_Game.IsServer() && g_Game.IsMultiplayer()) {
       Print(MPG_SPWNR + " Init");
       LoadConfig();
       UpdateConfig();
@@ -273,7 +178,7 @@ class MPG_SPWNR_ModConfig {
   // clang-format off
   private void LoadConfig() {
     // clang-format on
-    if (GetGame().IsServer() && GetGame().IsMultiplayer()) {
+    if (g_Game.IsServer() && g_Game.IsMultiplayer()) {
       if (FileExist(MPG_SPWNR_CONFIG_FILENAME)) {
         Print(MPG_SPWNR + " config found, loading...");
         JsonFileLoader<MPG_SPWNR_ModConfig>.JsonLoadFile(MPG_SPWNR_CONFIG_FILENAME, this);
@@ -287,34 +192,6 @@ class MPG_SPWNR_ModConfig {
   // clang-format off
   private void UpdateConfig() {
     // clang-format on
-    if (this.configVersion == 1) {
-      configVersion = 4;
-      JsonFileLoader<MPG_SPWNR_ModConfig>.JsonSaveFile(MPG_SPWNR_CONFIG_FILENAME, this);
-      // clang-format off
-      foreach (string pointConfigFile : pointsConfigs) {
-        // clang-format on
-        if (FileExist(MPG_SPWNR_POINTS_DIR + pointConfigFile + ".json")) {
-          array<ref MPG_Spawner_PointConfigV1> pointConfigV1 = new array<ref MPG_Spawner_PointConfigV1>;
-          JsonFileLoader<array<ref MPG_Spawner_PointConfigV1>>.JsonLoadFile(MPG_SPWNR_POINTS_DIR + pointConfigFile + ".json", pointConfigV1);
-
-          array<ref MPG_Spawner_PointConfig> pointConfigV2 = new array<ref MPG_Spawner_PointConfig>;
-
-          // clang-format off
-          foreach (MPG_Spawner_PointConfigV1 pointConfigV1Item : pointConfigV1) {
-            // clang-format on
-            MPG_Spawner_PointConfig converted = new MPG_Spawner_PointConfig();
-            converted.convertFromV1(pointConfigV1Item);
-
-            pointConfigV2.Insert(converted);
-          }
-
-          JsonFileLoader<array<ref MPG_Spawner_PointConfig>>.JsonSaveFile(MPG_SPWNR_POINTS_DIR + pointConfigFile + ".json", pointConfigV2);
-          Print(MPG_SPWNR + " config file '" + pointConfigFile + "' updated from v1 to v3");
-        }
-      }
-      Print(MPG_SPWNR + " config files updated from v1 to v3");
-      UpdateConfig();
-    }
     if (this.configVersion == 2) {
       configVersion = 4;
       JsonFileLoader<MPG_SPWNR_ModConfig>.JsonSaveFile(MPG_SPWNR_CONFIG_FILENAME, this);
@@ -337,10 +214,10 @@ class MPG_SPWNR_ModConfig {
           }
 
           JsonFileLoader<array<ref MPG_Spawner_PointConfig>>.JsonSaveFile(MPG_SPWNR_POINTS_DIR + pointConfigFileV2 + ".json", pointConfigV3);
-          Print(MPG_SPWNR + " config file '" + pointConfigFileV2 + "' updated from v2 to v3");
+          Print(MPG_SPWNR + " config file '" + pointConfigFileV2 + "' updated from v2 to v4");
         }
       }
-      Print(MPG_SPWNR + " config files updated from v2 to v3");
+      Print(MPG_SPWNR + " config files updated from v2 to v4");
     }
     if (this.configVersion == 3) {
       configVersion = 4;

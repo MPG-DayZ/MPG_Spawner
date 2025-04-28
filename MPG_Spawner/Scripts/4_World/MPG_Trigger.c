@@ -655,11 +655,18 @@ class MPG_Trigger extends Trigger {
 
     // Заменим запятые на пробелы и двойные пробелы на одинарные,
     // что бы избегать ошибок при спавне и неправильном написании координат
-    // TODO Реализовать конвертацию в нужный формат при загрузке конфигов с последующим сохранением.    pos.Replace(",", " ");
-    pos.Replace("  ", " ");
-    ori.Replace(",", " ");
-    ori.Replace("  ", " ");
+    // Но высрем в логи предупреджение о кривых данных
+    if (pos.Contains(",") || pos.Contains("  ")) {
+      Logger.Log(logPrefix + "WARNING: Incorrect position format: '" + pos + "'. Fix it or restart server.");
+      pos.Replace(",", " ");
+      pos.Replace("  ", " ");
+    }
 
+    if (ori.Contains(",") || ori.Contains("  ")) {
+      Logger.Log(logPrefix + "WARNING: Incorrect orientation format: '" + ori + "'. Fix it or restart server.");
+      ori.Replace(",", " ");
+      ori.Replace("  ", " ");
+    }
     vector spawnpos = pos.ToVector();
     if (spawnRadius > 0) {
       spawnpos = SetRandomPos(spawnpos, spawnRadius);
@@ -667,7 +674,10 @@ class MPG_Trigger extends Trigger {
 
     // Выбор случайного элемента для спавна
     string classNameToSpawn = spawnList.GetRandomElement();
-    classNameToSpawn.Replace(" ", "");
+    if (classNameToSpawn.Contains(" ")) {
+      Logger.Log(logPrefix + "WARNING: You have extra space in classname: '" + classNameToSpawn + "'. Fix it or restart server.");
+      classNameToSpawn.Replace(" ", "");
+    }
     float spawnchance = 1.0;
     TStringArray spawnItemArr = new TStringArray;
 

@@ -78,9 +78,12 @@ class MPG_Spawner {
 
         // Заменим запятые на пробелы и двойные пробелы на одинарные,
         // что бы избегать ошибок при спавне и неправильном написании координат
-        // TODO Реализовать конвертацию в нужный формат при загрузке конфигов с последующим сохранением.
-        posrot.Replace(",", " ");
-        posrot.Replace("  ", " ");
+        // Но высрем в логи предупреджение о кривых данных
+        if (posrot.Contains(",") || posrot.Contains("  ")) {
+          Logger.Log("PointId: " + pointConfig.pointId + "; WARNING: Wrong format of trigger position: '" + posrot + "' Fix it or restart server.");
+          posrot.Replace(",", " ");
+          posrot.Replace("  ", " ");
+        }
 
         TStringArray loc = new TStringArray;
         posrot.Split("|", loc);

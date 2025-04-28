@@ -172,6 +172,7 @@ class MPG_SPWNR_ModConfig {
       Print(MPG_SPWNR + " Init");
       LoadConfig();
       UpdateConfig();
+      ValidateConfig();
     }
   }
 
@@ -223,6 +224,69 @@ class MPG_SPWNR_ModConfig {
       configVersion = 4;
       JsonFileLoader<MPG_SPWNR_ModConfig>.JsonSaveFile(MPG_SPWNR_CONFIG_FILENAME, this);
     }
+  }
+  // clang-format off
+  private void ValidateConfig() {
+    // clang-format on
+    Print(MPG_SPWNR + " Start configs validation");
+    foreach (string pointConfigFile : pointsConfigs) {
+      // clang-format on
+      if (FileExist(MPG_SPWNR_POINTS_DIR + pointConfigFile + ".json")) {
+        array<ref MPG_Spawner_PointConfig> pointConfigData = new array<ref MPG_Spawner_PointConfig>;
+        JsonFileLoader<array<ref MPG_Spawner_PointConfig>>.JsonLoadFile(MPG_SPWNR_POINTS_DIR + pointConfigFile + ".json", pointConfigData);
+
+        bool isConfigValid = true;
+        foreach (MPG_Spawner_PointConfig pointConfigItem : pointConfigData) {
+
+          // Проверка на существование запятых в triggerPosition
+          if (pointConfigItem.triggerPosition.Contains(",") || pointConfigItem.triggerPosition.Contains("  ")) {
+            isConfigValid = false;
+            string fixedTriggerPos = pointConfigItem.triggerPosition;
+
+            fixedTriggerPos.Replace(",", " ");
+            fixedTriggerPos.Replace("  ", " ");
+            Print(MPG_SPWNR + " config file '" + pointConfigFile + "'; Invalid triggerPosition: '" + pointConfigItem.triggerPosition + "'. Fixed: '" + fixedTriggerPos + "'");
+
+            pointConfigItem.triggerPosition = fixedTriggerPos;
+          }
+
+          // Проверка на существование запятых в spawnPositions
+          for (int i = 0; i < pointConfigItem.spawnPositions.Count(); i++) {
+            if (pointConfigItem.spawnPositions[i].Contains(",") || pointConfigItem.spawnPositions[i].Contains("  ")) {
+              isConfigValid = false;
+              string fixed = pointConfigItem.spawnPositions[i];
+              fixed.Replace(",", " ");
+              fixed.Replace("  ", " ");
+
+              Print(MPG_SPWNR + " config file '" + pointConfigFile + "'; Invalid spawnPositions[" + i + "]: '" + pointConfigItem.spawnPositions[i] + "'. Fixed: '" + fixed + "'");
+
+              pointConfigItem.spawnPositions[i] = fixed;
+            }
+          }
+
+          // Проверка на существование запятых в spawnList
+          for (int j = 0; j < pointConfigItem.spawnList.Count(); j++) {
+            if (pointConfigItem.spawnList[j].Contains(" ")) {
+              isConfigValid = false;
+              string fixed1 = pointConfigItem.spawnList[j];
+              fixed1.Replace(" ", "");
+
+              Print(MPG_SPWNR + " config file '" + pointConfigFile + "'; Invalid spawnList[" + j + "]: '" + pointConfigItem.spawnList[j] + "'. Fixed: '" + fixed1 + "'");
+
+              pointConfigItem.spawnList[j] = fixed1;
+            }
+          }
+        }
+        if (!isConfigValid) {
+          JsonFileLoader<array<ref MPG_Spawner_PointConfig>>.JsonSaveFile(MPG_SPWNR_POINTS_DIR + pointConfigFile + ".json", pointConfigData);
+
+          Print(MPG_SPWNR + " config file '" + pointConfigFile + "' is fixed, try not to break the normal work of the mod anymore :)");
+          Print(MPG_SPWNR + " config file '" + pointConfigFile + "' is fixed, try not to break the normal work of the mod anymore :)");
+          Print(MPG_SPWNR + " config file '" + pointConfigFile + "' is fixed, try not to break the normal work of the mod anymore :)");
+        }
+      }
+    }
+    Print(MPG_SPWNR + " Configs validation finished");
   }
 
   // clang-format off
